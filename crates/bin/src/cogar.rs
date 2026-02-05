@@ -538,8 +538,8 @@ async fn serve_static_file_with_host(
         Some(content) => {
             let mime = mime_guess::from_path(&path).first_or_octet_stream();
             
-            // For index.html, inject connection URL
-            let body = if path == "index.html" {
+            // For main.js, inject connection URL
+            let body = if path == "main.js" {
                 if let Ok(content_str) = std::str::from_utf8(&content.data) {
                     // Auto-inject connection URL for cogar
                     let connection_url = if let (Some(host_header), Some(ws_scheme)) = (host, scheme) {

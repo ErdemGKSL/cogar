@@ -129,8 +129,8 @@ async fn serve_static_file(path: String) -> impl IntoResponse {
         Some(content) => {
             let mime = mime_guess::from_path(&path).first_or_octet_stream();
             
-            // For index.html, inject connection URLs from environment
-            let body = if path == "index.html" {
+            // For main.js, inject connection URLs from environment
+            let body = if path == "main.js" {
                 if let Ok(content_str) = std::str::from_utf8(&content.data) {
                     // Parse CONNECT_TO environment variable
                     let connection_config = if let Ok(connect_to) = std::env::var("CONNECT_TO") {
