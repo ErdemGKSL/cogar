@@ -1,4 +1,4 @@
-//! Native Ogar - Unified game server with embedded frontend.
+//! Cogar - Unified game server with embedded frontend.
 
 use axum::{
     extract::{ws::{WebSocket, WebSocketUpgrade}, ConnectInfo, State},
