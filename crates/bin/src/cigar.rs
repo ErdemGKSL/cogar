@@ -79,6 +79,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(serve_index))
         .route("/index.html", get(serve_index))
+        .route("/main.js", get(serve_main_js))
         .route("/skinList.txt", get(serve_skins_txt))
         .fallback(static_handler)
         .layer(ServiceBuilder::new().layer(CorsLayer::permissive()));
@@ -98,6 +99,11 @@ async fn main() -> anyhow::Result<()> {
 /// Serve the main index.html page
 async fn serve_index() -> impl IntoResponse {
     serve_static_file("index.html".to_string()).await
+}
+
+/// Serve main.js with connection injection
+async fn serve_main_js() -> impl IntoResponse {
+    serve_static_file("main.js".to_string()).await
 }
 
 /// Serve dynamically generated skins.txt

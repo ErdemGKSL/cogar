@@ -126,6 +126,7 @@ async fn main() -> anyhow::Result<()> {
         // Static file serving (index.html, CSS, WASM, etc.)
         .route("/", get(serve_index))
         .route("/index.html", get(serve_index))
+        .route("/main.js", get(serve_main_js))
         .route("/skinList.txt", get(serve_skins_txt))
         .fallback(static_handler)
         .layer(
@@ -498,6 +499,21 @@ async fn serve_index(headers: axum::http::HeaderMap) -> impl IntoResponse {
         .unwrap_or_else(|| "ws".to_string());
 
     serve_static_file_with_host("index.html".to_string(), host, Some(scheme)).await
+}
+
+/// Serve main.js with connection injection
+async fn serve_main_js(headers: axum::http::HeaderMap) -> impl IntoResponse {
+    let host = headers.get("host")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    let scheme = headers.get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_ascii_lowercase())
+        .map(|proto| if proto == "https" { "wss".to_string() } else { "ws".to_string() })
+        .unwrap_or_else(|| "ws".to_string());
+
+    serve_static_file_with_host("main.js".to_string(), host, Some(scheme)).await
 }
 
 /// Serve dynamically generated skins.txt

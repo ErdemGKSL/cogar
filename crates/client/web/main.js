@@ -27,7 +27,7 @@ function getAvailableServers() {
     
     // Fallback to query params or default
     const params = new URLSearchParams(window.location.search);
-    const serverUrl = params.get('server') || '127.0.0.1:11443/game';
+    const serverUrl = params.get('server') || '/game';
     return [{ url: normalizeUrl(serverUrl), name: serverUrl }];
 }
 
