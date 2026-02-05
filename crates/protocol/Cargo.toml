@@ -1,0 +1,11 @@
+[package]
+name = "protocol"
+description = "Shared protocol handling for native-ogar (MultiOgar-compatible binary protocol)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bytes.workspace = true
+glam.workspace = true
+thiserror.workspace = true

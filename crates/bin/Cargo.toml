@@ -1,0 +1,44 @@
+[package]
+name = "native-ogar"
+description = "Native Ogar - Unified game server with embedded frontend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+default-run = "cogar"
+
+[[bin]]
+name = "cogar"
+path = "src/cogar.rs"
+
+[[bin]]
+name = "cigar"
+path = "src/cigar.rs"
+
+[[bin]]
+name = "ogar"
+path = "src/ogar.rs"
+
+[build-dependencies]
+wasm-bindgen-cli = "0.2"
+
+[dependencies]
+protocol = { path = "../protocol" }
+server = { path = "../server" }
+anyhow.workspace = true
+bytes.workspace = true
+glam.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+toml.workspace = true
+serde.workspace = true
+rand.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+rust-embed.workspace = true
+mime_guess.workspace = true

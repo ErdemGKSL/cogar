@@ -1,0 +1,74 @@
+@import "tailwindcss";
+@import "./main.css";
+@source "./";
+
+:root {
+	--app-bg: #f2f2f2;
+	--app-text: #111111;
+	--panel-bg: rgba(255, 255, 255, 0.75);
+	--panel-border: rgba(0, 0, 0, 0.15);
+	--panel-text: #111111;
+	--panel-muted: rgba(0, 0, 0, 0.6);
+	--overlay-bg: rgba(0, 0, 0, 0.6);
+	--overlay-bg-solid: #f2f2f2;
+	--control-bg: rgba(0, 0, 0, 0.06);
+	--control-border: rgba(0, 0, 0, 0.2);
+	--toggle-track: rgba(0, 0, 0, 0.15);
+	--toggle-knob: #666666;
+}
+
+[data-theme="dark"] {
+	--app-bg: #0b0b0b;
+	--app-text: #ffffff;
+	--panel-bg: rgba(0, 0, 0, 0.55);
+	--panel-border: rgba(255, 255, 255, 0.15);
+	--panel-text: #ffffff;
+	--panel-muted: rgba(255, 255, 255, 0.6);
+	--overlay-bg: rgba(0, 0, 0, 0.8);
+	--overlay-bg-solid: #0b0b0b;
+	--control-bg: rgba(255, 255, 255, 0.1);
+	--control-border: rgba(255, 255, 255, 0.2);
+	--toggle-track: rgba(255, 255, 255, 0.15);
+	--toggle-knob: #ffffff;
+}
+
+.theme-body {
+	background-color: var(--app-bg);
+	color: var(--app-text);
+}
+
+.theme-text {
+	color: var(--panel-text);
+}
+
+.theme-muted {
+	color: var(--panel-muted);
+}
+
+.theme-panel {
+	background-color: var(--panel-bg);
+	color: var(--panel-text);
+	border-color: var(--panel-border);
+}
+
+.theme-control {
+	background-color: var(--control-bg);
+	color: var(--panel-text);
+	border-color: var(--control-border);
+}
+
+.theme-control::placeholder {
+	color: var(--panel-muted);
+}
+
+.theme-overlay {
+	background-color: var(--overlay-bg);
+}
+
+.toggle-track {
+	background-color: var(--toggle-track);
+}
+
+.toggle-track::before {
+	background: var(--toggle-knob);
+}

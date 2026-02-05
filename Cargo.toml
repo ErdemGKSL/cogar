@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/protocol",
+    "crates/server",
+    "crates/client",
+    "crates/bin",
+]
+default-members = ["crates/bin"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/ErdemGKSL/native-ogar"
+
+[workspace.dependencies]
+# Shared
+bytes = "1"
+glam = "0.29"
+thiserror = "2"
+anyhow = "1"
+
+# Server
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+rand = "0.9"
+
+# HTTP Server
+axum = { version = "0.8", features = ["ws", "macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+rust-embed = "8.5"
+mime_guess = "2.0"
+
+

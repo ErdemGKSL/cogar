@@ -1,0 +1,15 @@
+package-lock.json
+node_modules/
+bun.lockb
+dist/
+pnpm-lock.yaml
+yarn.lock
+
+# WASM build output
+web/pkg/
+
+# Generated Tailwind CSS bundle
+web/tailwind.css
+
+# Temporary safelist (written + deleted by build.rs)
+web/_safelist.html
