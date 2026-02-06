@@ -7,10 +7,14 @@ use crate::utils;
 use std::collections::HashSet;
 use std::f32::consts::PI;
 use std::f64::consts::TAU;
+use std::cell::RefCell;
 
 pub struct Renderer {
     canvas: HtmlCanvasElement,
     ctx: CanvasRenderingContext2d,
+    // Offscreen canvases for caching static elements
+    grid_cache: RefCell<Option<(HtmlCanvasElement, f32, f32, f32, bool)>>, // (canvas, zoom, cam_x, cam_y, dark_theme)
+    bg_cache: RefCell<Option<(HtmlCanvasElement, f32, f32, f32, bool)>>, // (canvas, zoom, cam_x, cam_y, dark_theme)
 }
 
 impl Renderer {
@@ -20,7 +24,12 @@ impl Renderer {
             .ok_or("Failed to get 2d context")?
             .dyn_into::<CanvasRenderingContext2d>()?;
         
-        Ok(Self { canvas, ctx })
+        Ok(Self {
+            canvas,
+            ctx,
+            grid_cache: RefCell::new(None),
+            bg_cache: RefCell::new(None),
+        })
     }
 
     #[inline(always)]
@@ -41,6 +50,58 @@ impl Renderer {
 
     #[inline]
     pub fn draw_grid(&self, border: (f32, f32, f32, f32), camera_pos: Vec2, zoom: f32, dark_theme: bool) {
+        // Check if we can use cached grid
+        if let Some((cached_canvas, cached_zoom, cached_x, cached_y, cached_theme)) = self.grid_cache.borrow().as_ref() {
+            // Cache is valid if zoom and camera position haven't changed significantly
+            let zoom_match = (cached_zoom - zoom).abs() < 0.001;
+            let pos_match = (cached_x - camera_pos.x).abs() < 1.0 && (cached_y - camera_pos.y).abs() < 1.0;
+            let theme_match = *cached_theme == dark_theme;
+            
+            if zoom_match && pos_match && theme_match {
+                // Use cached grid - just blit it to the main canvas
+                let _ = self.ctx.draw_image_with_html_canvas_element(cached_canvas, 0.0, 0.0);
+                return;
+            }
+        }
+
+        // Need to render grid - create or reuse offscreen canvas
+        let cache_canvas = if let Some((canvas, _, _, _, _)) = self.grid_cache.borrow().as_ref() {
+            canvas.clone()
+        } else {
+            let document = web_sys::window().unwrap().document().unwrap();
+            let canvas = document.create_element("canvas").unwrap().dyn_into::<HtmlCanvasElement>().unwrap();
+            canvas
+        };
+
+        cache_canvas.set_width(self.canvas.width());
+        cache_canvas.set_height(self.canvas.height());
+
+        let cache_ctx = cache_canvas
+            .get_context("2d").unwrap()
+            .unwrap()
+            .dyn_into::<CanvasRenderingContext2d>().unwrap();
+
+        // Render grid to cache canvas
+        self.render_grid_to_context(&cache_ctx, self.width(), self.height(), border, camera_pos, zoom, dark_theme);
+
+        // Blit cache to main canvas
+        let _ = self.ctx.draw_image_with_html_canvas_element(&cache_canvas, 0.0, 0.0);
+
+        // Update cache
+        *self.grid_cache.borrow_mut() = Some((cache_canvas, zoom, camera_pos.x, camera_pos.y, dark_theme));
+    }
+
+    #[inline]
+    fn render_grid_to_context(
+        &self,
+        ctx: &CanvasRenderingContext2d,
+        width: f32,
+        height: f32,
+        border: (f32, f32, f32, f32),
+        camera_pos: Vec2,
+        zoom: f32,
+        dark_theme: bool
+    ) {
         let (min_x, min_y, max_x, max_y) = border;
         let world_w = max_x - min_x;
         let world_h = max_y - min_y;
@@ -66,7 +127,7 @@ impl Renderer {
         let grid_size_x = sector_w / subdivisions_x;
         let grid_size_y = sector_h / subdivisions_y;
 
-        let screen_center = Vec2::new(self.width() / 2.0, self.height() / 2.0);
+        let screen_center = Vec2::new(width / 2.0, height / 2.0);
 
         // Calculate visible grid range, snapped to world origin
         let half_view_w = screen_center.x / zoom;
@@ -77,9 +138,9 @@ impl Renderer {
         let end_y = min_y + ((camera_pos.y + half_view_h - min_y) / grid_size_y).ceil() * grid_size_y;
 
         let grid_color = if dark_theme { "rgba(255,255,255,0.22)" } else { "rgba(0,0,0,0.18)" };
-        self.ctx.set_stroke_style_str(grid_color);
-        self.ctx.set_line_width(1.0);
-        self.ctx.begin_path();
+        ctx.set_stroke_style_str(grid_color);
+        ctx.set_line_width(1.0);
+        ctx.begin_path();
 
         // Only snap to pixel boundaries at higher zoom levels where it doesn't cause jitter
         // At very low zoom, accept slightly anti-aliased lines for smooth movement
@@ -92,10 +153,11 @@ impl Renderer {
             if x > end_x { break; }
             let screen_x = (x - camera_pos.x) * zoom + screen_center.x;
             let final_x = if should_snap { screen_x.round() + 0.5 } else { screen_x };
-            self.ctx.move_to(final_x as f64, 0.0);
-            self.ctx.line_to(final_x as f64, self.height() as f64);
+            ctx.move_to(final_x as f64, 0.0);
+            ctx.line_to(final_x as f64, height as f64);
         }
 
+        // Horizontal lines - use integer-based iteration to prevent accumulation errors
         // Horizontal lines - use integer-based iteration to prevent accumulation errors
         let num_hlines = ((end_y - start_y) / grid_size_y).ceil() as i32;
         for i in 0..=num_hlines {
@@ -103,11 +165,11 @@ impl Renderer {
             if y > end_y { break; }
             let screen_y = (y - camera_pos.y) * zoom + screen_center.y;
             let final_y = if should_snap { screen_y.round() + 0.5 } else { screen_y };
-            self.ctx.move_to(0.0, final_y as f64);
-            self.ctx.line_to(self.width() as f64, final_y as f64);
+            ctx.move_to(0.0, final_y as f64);
+            ctx.line_to(width as f64, final_y as f64);
         }
 
-        self.ctx.stroke();
+        ctx.stroke();
     }
 
     #[inline]
@@ -118,10 +180,61 @@ impl Renderer {
         zoom: f32,
         dark_theme: bool,
     ) {
+        // Check if we can use cached background sectors
+        if let Some((cached_canvas, cached_zoom, cached_x, cached_y, cached_theme)) = self.bg_cache.borrow().as_ref() {
+            let zoom_match = (cached_zoom - zoom).abs() < 0.001;
+            let pos_match = (cached_x - camera_pos.x).abs() < 1.0 && (cached_y - camera_pos.y).abs() < 1.0;
+            let theme_match = *cached_theme == dark_theme;
+            
+            if zoom_match && pos_match && theme_match {
+                // Use cached background - just blit it
+                let _ = self.ctx.draw_image_with_html_canvas_element(cached_canvas, 0.0, 0.0);
+                return;
+            }
+        }
+
+        // Need to render - create or reuse offscreen canvas
+        let cache_canvas = if let Some((canvas, _, _, _, _)) = self.bg_cache.borrow().as_ref() {
+            canvas.clone()
+        } else {
+            let document = web_sys::window().unwrap().document().unwrap();
+            let canvas = document.create_element("canvas").unwrap().dyn_into::<HtmlCanvasElement>().unwrap();
+            canvas
+        };
+
+        cache_canvas.set_width(self.canvas.width());
+        cache_canvas.set_height(self.canvas.height());
+
+        let cache_ctx = cache_canvas
+            .get_context("2d").unwrap()
+            .unwrap()
+            .dyn_into::<CanvasRenderingContext2d>().unwrap();
+
+        // Render background sectors to cache canvas
+        self.render_background_sectors_to_context(&cache_ctx, self.width(), self.height(), border, camera_pos, zoom, dark_theme);
+
+        // Blit cache to main canvas
+        let _ = self.ctx.draw_image_with_html_canvas_element(&cache_canvas, 0.0, 0.0);
+
+        // Update cache
+        *self.bg_cache.borrow_mut() = Some((cache_canvas, zoom, camera_pos.x, camera_pos.y, dark_theme));
+    }
+
+    #[inline]
+    fn render_background_sectors_to_context(
+        &self,
+        ctx: &CanvasRenderingContext2d,
+        width: f32,
+        height: f32,
+        border: (f32, f32, f32, f32),
+        camera_pos: Vec2,
+        zoom: f32,
+        dark_theme: bool,
+    ) {
         let (min_x, min_y, max_x, max_y) = border;
-        let width = max_x - min_x;
-        let height = max_y - min_y;
-        if width <= 0.0 || height <= 0.0 {
+        let world_width = max_x - min_x;
+        let world_height = max_y - min_y;
+        if world_width <= 0.0 || world_height <= 0.0 {
             return;
         }
 
@@ -129,10 +242,10 @@ impl Renderer {
         let sector_names_x = ["A", "B", "C", "D", "E"];
         let sector_names_y = ["1", "2", "3", "4", "5"];
 
-        let sector_w = width / sector_count as f32;
-        let sector_h = height / sector_count as f32;
+        let sector_w = world_width / sector_count as f32;
+        let sector_h = world_height / sector_count as f32;
 
-        let screen_center = Vec2::new(self.width() / 2.0, self.height() / 2.0);
+        let screen_center = Vec2::new(width / 2.0, height / 2.0);
         let font_size = (sector_w / 3.0 * zoom).max(10.0);
 
         let world_to_screen = |world: Vec2| -> Vec2 { (world - camera_pos) * zoom + screen_center };
@@ -140,31 +253,31 @@ impl Renderer {
         let should_snap = zoom >= 0.2;
         let snap = |v: f32| -> f32 { if should_snap { v.round() + 0.5 } else { v } };
 
-        self.ctx.set_fill_style_str(if dark_theme { "#666" } else { "#DDD" });
-        self.ctx.set_text_align("center");
-        self.ctx.set_text_baseline("middle");
-        self.ctx.set_font(&format!("{}px Ubuntu", font_size.floor()));
+        ctx.set_fill_style_str(if dark_theme { "#666" } else { "#DDD" });
+        ctx.set_text_align("center");
+        ctx.set_text_baseline("middle");
+        ctx.set_font(&format!("{}px Ubuntu", font_size.floor()));
 
         // Sector grid lines
         let line_color = if dark_theme { "rgba(255,255,255,0.18)" } else { "rgba(0,0,0,0.12)" };
-        self.ctx.set_stroke_style_str(line_color);
-        self.ctx.set_line_width(if dark_theme { 3.0 } else { 2.4 });
-        self.ctx.begin_path();
+        ctx.set_stroke_style_str(line_color);
+        ctx.set_line_width(if dark_theme { 3.0 } else { 2.4 });
+        ctx.begin_path();
         for i in 1..sector_count {
             let x = min_x + i as f32 * sector_w;
             let y = min_y + i as f32 * sector_h;
 
             let screen_x = world_to_screen(Vec2::new(x, min_y));
             let screen_x2 = world_to_screen(Vec2::new(x, max_y));
-            self.ctx.move_to(snap(screen_x.x) as f64, snap(screen_x.y) as f64);
-            self.ctx.line_to(snap(screen_x2.x) as f64, snap(screen_x2.y) as f64);
+            ctx.move_to(snap(screen_x.x) as f64, snap(screen_x.y) as f64);
+            ctx.line_to(snap(screen_x2.x) as f64, snap(screen_x2.y) as f64);
 
             let screen_y = world_to_screen(Vec2::new(min_x, y));
             let screen_y2 = world_to_screen(Vec2::new(max_x, y));
-            self.ctx.move_to(snap(screen_y.x) as f64, snap(screen_y.y) as f64);
-            self.ctx.line_to(snap(screen_y2.x) as f64, snap(screen_y2.y) as f64);
+            ctx.move_to(snap(screen_y.x) as f64, snap(screen_y.y) as f64);
+            ctx.line_to(snap(screen_y2.x) as f64, snap(screen_y2.y) as f64);
         }
-        self.ctx.stroke();
+        ctx.stroke();
 
         for y in 0..sector_count {
             for x in 0..sector_count {
@@ -172,7 +285,7 @@ impl Renderer {
                 let world_x = min_x + (x as f32 + 0.5) * sector_w;
                 let world_y = min_y + (y as f32 + 0.5) * sector_h;
                 let screen_pos = world_to_screen(Vec2::new(world_x, world_y));
-                self.ctx.fill_text(&label, snap(screen_pos.x) as f64, snap(screen_pos.y) as f64).ok();
+                ctx.fill_text(&label, snap(screen_pos.x) as f64, snap(screen_pos.y) as f64).ok();
             }
         }
     }
@@ -198,6 +311,9 @@ impl Renderer {
         }
 
         let (r, g, b) = cell.color;
+
+        // LOD: Skip skins for small cells (< 30px radius)
+        let should_render_skin = skin.is_some() && radius >= 30.0;
 
         if cell.is_virus && !(jelly_physics && !cell.points.is_empty()) {
             self.ctx.set_global_alpha(alpha as f64);
@@ -232,17 +348,20 @@ impl Renderer {
             self.ctx.set_fill_style_str(&format!("rgb({},{},{})", r, g, b));
             self.ctx.fill();
 
-            // Overlay skin image, clipped to the circle (only when loaded)
-            if let Some(img) = skin {
-                if img.complete() && img.width() > 0 {
-                    self.ctx.save();
-                    self.ctx.clip(); // clip region = current path (the circle)
-                    // translate + scale so the basic draw_image fills the circle
-                    let _ = self.ctx.translate((screen_pos.x - radius) as f64, (screen_pos.y - radius) as f64);
-                    let scale = (radius * 2.0) as f64 / img.width() as f64;
-                    let _ = self.ctx.scale(scale, scale);
-                    self.ctx.draw_image_with_html_image_element(img, 0.0, 0.0).ok();
-                    self.ctx.restore(); // remove clip + transform; path still intact for stroke
+            // Overlay skin image, clipped to the circle (only when loaded and large enough)
+            if should_render_skin {
+                if let Some(img) = skin {
+                    // Cache check: only render if image is complete
+                    if img.complete() && img.width() > 0 {
+                        self.ctx.save();
+                        self.ctx.clip(); // clip region = current path (the circle)
+                        // translate + scale so the basic draw_image fills the circle
+                        let _ = self.ctx.translate((screen_pos.x - radius) as f64, (screen_pos.y - radius) as f64);
+                        let scale = (radius * 2.0) as f64 / img.width() as f64;
+                        let _ = self.ctx.scale(scale, scale);
+                        self.ctx.draw_image_with_html_image_element(img, 0.0, 0.0).ok();
+                        self.ctx.restore(); // remove clip + transform; path still intact for stroke
+                    }
                 }
             }
 
@@ -255,9 +374,9 @@ impl Renderer {
             self.ctx.set_global_alpha(1.0);
         }
 
-        // Draw name and mass if cell is large enough
-        if radius > 20.0 && !cell.is_food {
-            if show_names {
+        // LOD: Only draw text for cells above 20px radius (names) or 30px (mass)
+        if !cell.is_food {
+            if show_names && radius > 20.0 {
                 self.draw_text_centered(&cell.name, screen_pos, radius, 16.0);
             }
 
@@ -311,16 +430,20 @@ impl Renderer {
         }
 
         self.ctx.set_font(&format!("bold {}px Arial", font_size));
-        self.ctx.set_fill_style_str("white");
-        self.ctx.set_stroke_style_str("black");
-        self.ctx.set_line_width(3.0);
         self.ctx.set_text_align("center");
         self.ctx.set_text_baseline("middle");
-
-        // Stroke (outline)
-        self.ctx.stroke_text(text, pos.x as f64, pos.y as f64).ok();
-        // Fill
+        
+        // Use shadow instead of stroke+fill for 2x performance gain
+        self.ctx.set_shadow_blur(4.0);
+        self.ctx.set_shadow_color("black");
+        self.ctx.set_shadow_offset_x(0.0);
+        self.ctx.set_shadow_offset_y(0.0);
+        
+        self.ctx.set_fill_style_str("white");
         self.ctx.fill_text(text, pos.x as f64, pos.y as f64).ok();
+        
+        // Reset shadow
+        self.ctx.set_shadow_blur(0.0);
     }
 
     #[inline]
@@ -353,6 +476,9 @@ const MINIMAP_SIZE: u32 = 150;
 
 pub struct Minimap {
     ctx: CanvasRenderingContext2d,
+    canvas: HtmlCanvasElement,
+    // Static layer cache (background, border, sectors, labels)
+    static_cache: RefCell<Option<(HtmlCanvasElement, bool)>>, // (canvas, dark_theme)
 }
 
 impl Minimap {
@@ -373,7 +499,11 @@ impl Minimap {
             .ok_or("Failed to get minimap 2d context")?
             .dyn_into::<CanvasRenderingContext2d>()?;
 
-        Ok(Self { ctx })
+        Ok(Self {
+            ctx,
+            canvas,
+            static_cache: RefCell::new(None),
+        })
     }
 
     /// Draw the minimap.
@@ -401,51 +531,23 @@ impl Minimap {
         let min_x = min_x as f64;
         let min_y = min_y as f64;
 
-        // --- background ---
+        // Clear canvas
         self.ctx.clear_rect(0.0, 0.0, size, size);
-        self.ctx.set_fill_style_str(if dark_theme { "rgba(0,0,0,0.7)" } else { "rgba(255,255,255,0.7)" });
-        self.ctx.fill_rect(0.0, 0.0, size, size);
 
-        // --- world-border outline ---
-        self.ctx.set_stroke_style_str(if dark_theme { "rgba(255,255,255,0.35)" } else { "rgba(0,0,0,0.35)" });
-        self.ctx.set_line_width(1.0);
-        self.ctx.stroke_rect(0.0, 0.0, size, size);
+        // Check if we can use cached static layer
+        let need_rebuild = if let Some((_, cached_theme)) = self.static_cache.borrow().as_ref() {
+            *cached_theme != dark_theme
+        } else {
+            true
+        };
 
-        // --- sector labels ---
-        let sector_count = 5.0;
-        let sector_names_x = ["A", "B", "C", "D", "E"];
-        let sector_names_y = ["1", "2", "3", "4", "5"];
-        let sector_w = size / sector_count;
-        let sector_h = size / sector_count;
-        let sector_font = (sector_w.min(sector_h) / 3.0).max(8.0);
-
-        // Sector grid lines
-        let grid_color = if dark_theme { "rgba(255,255,255,0.22)" } else { "rgba(0,0,0,0.14)" };
-        self.ctx.set_stroke_style_str(grid_color);
-        self.ctx.set_line_width(if dark_theme { 1.5 } else { 1.2 });
-        self.ctx.begin_path();
-        for i in 1..5 {
-            let x = i as f64 * sector_w;
-            let y = i as f64 * sector_h;
-            self.ctx.move_to(x, 0.0);
-            self.ctx.line_to(x, size);
-            self.ctx.move_to(0.0, y);
-            self.ctx.line_to(size, y);
+        if need_rebuild {
+            self.render_static_layer(size, dark_theme);
         }
-        self.ctx.stroke();
 
-        self.ctx.set_fill_style_str(if dark_theme { "#666" } else { "#DDD" });
-        self.ctx.set_text_align("center");
-        self.ctx.set_text_baseline("middle");
-        self.ctx.set_font(&format!("{}px Ubuntu", sector_font.floor()));
-
-        for x in 0..5 {
-            for y in 0..5 {
-                let label = format!("{}{}", sector_names_x[x], sector_names_y[y]);
-                let lx = (x as f64 + 0.5) * sector_w;
-                let ly = (y as f64 + 0.5) * sector_h;
-                self.ctx.fill_text(&label, lx, ly).ok();
-            }
+        // Blit static layer
+        if let Some((static_canvas, _)) = self.static_cache.borrow().as_ref() {
+            let _ = self.ctx.draw_image_with_html_canvas_element(static_canvas, 0.0, 0.0);
         }
 
         // Closure: world pos → minimap pixel pos
@@ -465,6 +567,8 @@ impl Minimap {
 
         // --- highlight current sector ---
         let (mx, my) = map(cam_pos.x as f64, cam_pos.y as f64);
+        let sector_w = size / 5.0;
+        let sector_h = size / 5.0;
         let sector_x = (mx / sector_w).floor().clamp(0.0, 4.0);
         let sector_y = (my / sector_h).floor().clamp(0.0, 4.0);
         self.ctx.set_fill_style_str("yellow");
@@ -530,5 +634,72 @@ impl Minimap {
             }
             self.ctx.restore(); // Restore state after xray section
         }
+    }
+
+    fn render_static_layer(&self, size: f64, dark_theme: bool) {
+        // Create or reuse offscreen canvas for static elements
+        let static_canvas = if let Some((canvas, _)) = self.static_cache.borrow().as_ref() {
+            canvas.clone()
+        } else {
+            let document = web_sys::window().unwrap().document().unwrap();
+            let canvas = document.create_element("canvas").unwrap().dyn_into::<HtmlCanvasElement>().unwrap();
+            canvas
+        };
+
+        static_canvas.set_width(MINIMAP_SIZE);
+        static_canvas.set_height(MINIMAP_SIZE);
+
+        let static_ctx = static_canvas
+            .get_context("2d").unwrap()
+            .unwrap()
+            .dyn_into::<CanvasRenderingContext2d>().unwrap();
+
+        // --- background ---
+        static_ctx.set_fill_style_str(if dark_theme { "rgba(0,0,0,0.7)" } else { "rgba(255,255,255,0.7)" });
+        static_ctx.fill_rect(0.0, 0.0, size, size);
+
+        // --- world-border outline ---
+        static_ctx.set_stroke_style_str(if dark_theme { "rgba(255,255,255,0.35)" } else { "rgba(0,0,0,0.35)" });
+        static_ctx.set_line_width(1.0);
+        static_ctx.stroke_rect(0.0, 0.0, size, size);
+
+        // --- sector labels ---
+        let sector_names_x = ["A", "B", "C", "D", "E"];
+        let sector_names_y = ["1", "2", "3", "4", "5"];
+        let sector_w = size / 5.0;
+        let sector_h = size / 5.0;
+        let sector_font = (sector_w.min(sector_h) / 3.0).max(8.0);
+
+        // Sector grid lines
+        let grid_color = if dark_theme { "rgba(255,255,255,0.22)" } else { "rgba(0,0,0,0.14)" };
+        static_ctx.set_stroke_style_str(grid_color);
+        static_ctx.set_line_width(if dark_theme { 1.5 } else { 1.2 });
+        static_ctx.begin_path();
+        for i in 1..5 {
+            let x = i as f64 * sector_w;
+            let y = i as f64 * sector_h;
+            static_ctx.move_to(x, 0.0);
+            static_ctx.line_to(x, size);
+            static_ctx.move_to(0.0, y);
+            static_ctx.line_to(size, y);
+        }
+        static_ctx.stroke();
+
+        static_ctx.set_fill_style_str(if dark_theme { "#666" } else { "#DDD" });
+        static_ctx.set_text_align("center");
+        static_ctx.set_text_baseline("middle");
+        static_ctx.set_font(&format!("{}px Ubuntu", sector_font.floor()));
+
+        for x in 0..5 {
+            for y in 0..5 {
+                let label = format!("{}{}", sector_names_x[x], sector_names_y[y]);
+                let lx = (x as f64 + 0.5) * sector_w;
+                let ly = (y as f64 + 0.5) * sector_h;
+                static_ctx.fill_text(&label, lx, ly).ok();
+            }
+        }
+
+        // Update cache
+        *self.static_cache.borrow_mut() = Some((static_canvas, dark_theme));
     }
 }

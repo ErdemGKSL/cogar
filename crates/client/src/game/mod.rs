@@ -885,6 +885,7 @@ impl GameClient {
 
         self.camera.update(has_cells);
 
+        // Jelly physics with LOD (skips small cells)
         if self.settings.jelly_physics {
             self.update_jelly_physics();
         }
@@ -1538,7 +1539,18 @@ impl GameClient {
         let (min_x, min_y, max_x, max_y) = self.border;
 
         for cell in self.cells.values_mut() {
-            let mut num_points = (cell.render_size * self.camera.zoom).floor() as i32;
+            // LOD: Skip jelly physics for small cells (< 25px screen radius)
+            let screen_radius = cell.render_size * self.camera.zoom;
+            if screen_radius < 25.0 {
+                // Clear jelly points for small cells to save memory
+                if !cell.points.is_empty() {
+                    cell.points.clear();
+                    cell.points_vel.clear();
+                }
+                continue;
+            }
+
+            let mut num_points = screen_radius.floor() as i32;
             num_points = num_points.clamp(CELL_POINTS_MIN as i32, CELL_POINTS_MAX as i32);
             let mut num_points = num_points as usize;
             if cell.is_virus {
